@@ -1,0 +1,461 @@
+---
+title: "191010_DCC_paper_analysis_followalong"
+author: "Evan Witt"
+date: "10/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Welcome to the source code for Witt and Zhao 2019/2020.  In order to follow along you will need to obtain the data files from the included box link.  This includes the integrated dataset for the two *D. melanogaster* strains, lists of X, Y and testis specific genes, counts from X, Y and autosomes for every gene in every cell, and coordinates for msl chromatin entry sites.
+
+First, let's set everything up.  If you downloaded the data files somewhere else, set your working directory appropriately.
+
+```{r fig.width=12, message=FALSE, warning=FALSE}
+setwd("~/Downloads/WittZhao2020data")
+library(Seurat)
+library(viridis)
+library(MASS)
+library(plyr)
+library(dplyr)
+library(sctransform)
+library(hues)
+library(ggpubr)
+library(ggsignif)
+library(tidyverse)
+library(rstatix)
+library(cowplot)
+
+#This is for times we want to represent p values as asterixis
+symnum.args <- list(
+  cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1), 
+  symbols = c("****", "***", "**", "*", "")
+)
+
+#read in the tesis RDS, and gene lists
+testis.integrated<-readRDS("~/Downloads/WittZhao2020data/190730_R517_wild_integrated_SCtransform.RDS")
+testis.integrated@active.ident<-factor(testis.integrated@active.ident, levels=c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
+
+testisspecificgenes<-read.csv( "~/Downloads/WittZhao2020data/190516_testisspecificgenes_flyatlas.csv")
+names(testisspecificgenes)<-c("row","ID")
+genestsv<-read.table("~/Downloads/WittZhao2020data/genes.tsv")
+names(genestsv)<-c("ID", "Gene")
+X <-(scan("~/Downloads/WittZhao2020data/X.txt", what="", sep="\n"))
+X<-X[X %in% rownames(GetAssayData(object = testis.integrated))]
+
+Y <-(scan("~/Downloads/WittZhao2020data/ChrY.txt", what="", sep="\n"))
+Y<-Y[Y %in% rownames(GetAssayData(object = testis.integrated))]
+autosomal <-rownames(GetAssayData(object = testis.integrated))
+autosomal <-autosomal[!autosomal %in% X]
+autosomal <-autosomal[!autosomal %in% Y]
+
+testisspecificgenes<-join(testisspecificgenes,genestsv, by="ID", type="inner" )
+testisspecificgenes<-droplevels(testisspecificgenes$Gene)
+testisspecificgenes<-testisspecificgenes[testisspecificgenes %in% rownames(GetAssayData(object = testis.integrated))]
+
+```
+
+
+Make a dotplot of all the marker genes in every cell type, then get the barcodes of each cell of every type.  Then get the raw counts from every gene, divided by cell type.
+```{r, fig.width=14}
+DotPlot(testis.integrated, assay = "RNA", features = rev(c("MtnA","zfh1","Fas3", "aub", "bam", "His2Av", "fzo", "twe", "Dpy-30L2", "p-cup")), cols=c("lightblue", "red"), col.min = 0)
+
+#barcodes
+Hub <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Hub cells"))
+Cyst <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Cyst cells"))
+Epi <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Epithelial cells"))
+GSC.Early.spermatogonia <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="GSC, Early spermatogonia"))
+Late.spermatogonia <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Late spermatogonia"))
+Early.spermatocytes <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Early spermatocytes"))
+Late.spermatocytes <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Late spermatocytes"))
+Early.spermatids <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Early spermatids"))
+Late.spermatids <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Late spermatids"))
+
+#raw counts
+Hub.raw<-as.matrix(testis.integrated@assays$RNA@counts[,rownames(Hub)])
+Cyst.raw<-as.matrix(testis.integrated@assays$RNA@counts[,rownames(Cyst)])
+Epithelial.raw<-as.matrix(testis.integrated@assays$RNA@counts[,rownames(Epi)])
+GSC.Early.spermatogonia.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="counts")[,rownames(GSC.Early.spermatogonia)])
+Late.spermatogonia.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="counts")[,rownames(Late.spermatogonia )])
+Early.spermatocytes.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="counts")[,rownames(Early.spermatocytes)])
+Late.spermatocytes.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="counts")[,rownames(Late.spermatocytes)])
+Early.spermatids.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="counts")[,rownames(Early.spermatids)])
+Late.spermatids.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="counts")[,rownames(Late.spermatids)])
+
+
+```
+
+Ok let's make figure 1.
+```{r, fig.width=10}
+#get proportions of expressed genes in every cell type
+celltypeprops<-data.frame()
+for (i in list("Hub.raw","Cyst.raw", "Epithelial.raw", "GSC.Early.spermatogonia.raw", "Late.spermatogonia.raw", "Early.spermatocytes.raw", "Late.spermatocytes.raw", "Early.spermatids.raw", "Late.spermatids.raw")){
+  tmp<-data.frame(colSums(get(i)[X,] > 0)/nrow(get(i)[X,] ), i, "Chr X genes")
+  names(tmp)<-c("Proportion", "Celltype", "Genegroup")
+  tmp$barcode<-rownames(tmp)
+  celltypeprops<-rbind(celltypeprops, tmp)
+  tmp<-data.frame(colSums(get(i)[autosomal,] > 0)/nrow(get(i)[autosomal,] ), i, "Autosomal genes")
+  names(tmp)<-c("Proportion", "Celltype", "Genegroup")
+  tmp$barcode<-rownames(tmp)
+  celltypeprops<-rbind(celltypeprops, tmp)
+  tmp<-data.frame(colSums(get(i)[Y,] > 0)/nrow(get(i)[Y,] ), i, "Chr Y genes")
+  names(tmp)<-c("Proportion", "Celltype", "Genegroup")
+  tmp$barcode<-rownames(tmp)
+  celltypeprops<-rbind(celltypeprops, tmp)
+
+}
+
+#replace names
+celltypeprops$`Celltype`<-gsub(celltypeprops$`Celltype`, pattern=".raw", replacement="")
+celltypeprops$`Celltype`<-gsub(celltypeprops$`Celltype`, pattern=".", replacement=" ", fixed=TRUE)
+celltypeprops$`Celltype`<-gsub(celltypeprops$`Celltype`, pattern="GSC", replacement="GSC,", fixed=TRUE)
+celltypeprops$`Celltype`<-factor(x=celltypeprops$`Celltype`, levels<-c("Hub","Cyst", "Epithelial", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
+
+#make a color palette for our 9 cell types
+pal<-as.vector(iwanthue(n = 9))
+
+
+#make boxplots  plot of RNA for X, autosomes
+Xcounts<-colSums(as.matrix(testis.integrated@assays$RNA@counts)[X,])
+Autocounts<-colSums(as.matrix(testis.integrated@assays$RNA@counts)[autosomal,])
+testis.integrated<-AddMetaData(testis.integrated,metadata = Xcounts, col.name = "Xcounts")
+testis.integrated<-AddMetaData(testis.integrated,metadata = Autocounts, col.name = "Autocounts")
+
+data1<-data.frame(Xcounts=testis.integrated@meta.data$Xcounts, Autocounts=testis.integrated@meta.data$Autocounts, Celltype=testis.integrated@active.ident )
+
+data1$Celltype<-factor(data1$Celltype, levels=rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids")))
+
+#get median RNA counts for every cell type, X and autosome
+celltypecounts<-data.frame()
+for (i in unique(data1$Celltype)){
+  tmp<-data.frame(Celltype=i, Xcounts=median(subset(data1, Celltype==i)$Xcounts), Autocounts=median(subset(data1, Celltype==i)$Autocounts))
+  celltypecounts<-rbind(tmp, celltypecounts)
+}
+
+
+#Figure 1B  
+p1<-ggplot(data1, aes(x=data1$Celltype, y=Xcounts))+geom_boxplot(outlier.shape = NA, aes(x = Celltype, group=Celltype, fill=Celltype, color=Celltype))+theme(legend.position="none")+scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+
+stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+ scale_y_continuous(trans = 'log10',  breaks = scales::trans_breaks("log10", function(x) 10^x),labels =scales::trans_format("log10", scales::math_format(10^.x)))+xlab("Cell type")+ ylab("ChrX RNA per cell")+coord_flip()+
+  theme(axis.text.x=element_text(angle=90, size=10), axis.title=element_text(size=10) ,axis.text.y=element_text(size=10))
+  
+p2<-ggplot(data1, aes(x=data1$Celltype, y=Autocounts))+geom_boxplot(outlier.shape = NA, aes(x = Celltype, group=Celltype, fill=Celltype, color=Celltype))+theme(legend.position="none")+scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+
+  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+ scale_y_continuous(trans = 'log10',  breaks = scales::trans_breaks("log10", function(x) 10^x),labels = scales::trans_format("log10", scales::math_format(10^.x)))+xlab("Cell type")+ ylab("Autosomal RNA per cell")+coord_flip()+
+  theme(axis.text.x=element_text(angle=90, size=10), axis.title.x=element_text(size=10) ,axis.text.y=element_blank(), axis.title.y=element_blank())
+
+p1<-plot_grid(p1, p2, ncol=2, rel_widths=c(2,1))
+#Figure 1A- make t-sNE showing dimensional reduction of cell types
+p2 <- DimPlot(testis.integrated, reduction = "tsne", label = FALSE , cols = pal)
+p2<-p2+theme(text=element_text(size=10), axis.text=element_text(size=10), axis.title=element_text(size=10), legend.text=element_text(size=10))
+p1<-p1+theme(text=element_text(size=10), axis.text=element_text(size=10), axis.title=element_text(size=10), legend.text=element_text(size=10))
+
+p1 <-plot_grid(p2, p1, rel_widths = c(1,1.2), rel_heights = c(0.9,1),labels = c("A", "B"), label_size = 10)
+
+celltypeprops$Genegroup<-factor(celltypeprops$Genegroup, levels=c("Chr X genes", "Autosomal genes","Chr Y genes"))
+
+my_comparisons<-list(c("Chr X genes", "Autosomal genes"))
+
+#figure 1 C
+p2<-ggplot(celltypeprops, aes(x=Genegroup, y=Proportion))+  geom_boxplot(outlier.shape=NA, aes_string(colour=celltypeprops$`Genegroup`, fill=celltypeprops$`Genegroup`))+
+  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+
+  xlab("Cell type")+ylab('Proportion of genes expressed')+  guides(fill=guide_legend(title="Gene class"))+
+  theme( legend.position="top", axis.ticks.x=element_blank(), axis.text.x=element_blank(), text=element_text(size=10))+
+  facet_wrap(~`Celltype`, scales="free_x", nrow=1, strip.position = "bottom",labeller = label_wrap_gen(width=15))+
+  theme(strip.text=element_text(margin=margin(2,0,2,0, "pt"), size=10), strip.background=element_rect(fill="white"), strip.placement="outside", text=element_text(size=10), axis.text=element_text(size=10), axis.title=element_text(size=10), legend.text=element_text(size=10))+guides(colour=FALSE)
+
+#get raw and adjusted p values for figure 1C
+stat.test <- celltypeprops %>%
+  group_by(Celltype) %>%
+  wilcox_test(Proportion ~ Genegroup, comparisons = my_comparisons, alternative="less") %>%
+  adjust_pvalue(method = "holm") %>%
+  add_significance("p.adj") %>%
+  add_y_position()
+
+
+p2<-p2+ stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01 )
+ 
+plot_grid(p1, p2, ncol=1, labels = c("A", "C"), label_size = 10, rel_heights = c(0.8,1.5))
+
+
+
+```
+Time for figure 2:
+```{r, fig.width=10, fig.height=10, fig.height=6.5}
+
+#Get expression of every gene in every cell
+testis.scaled<-as.matrix(GetAssayData(testis.integrated, assay  = "RNA"))
+#scale every gene so that 0 is its median expression across all cells
+testis.scaled<-t(scale(t(testis.scaled)))
+testis.scaled[is.nan(testis.scaled)]<-0
+
+#get scaled expression of cells in each celltype
+Hub.scale<-as.matrix(testis.scaled[,rownames(Hub)])
+Epi.scale<-as.matrix(testis.scaled[,rownames(Epi)]) 
+Cyst.scale<-as.matrix(testis.scaled[,rownames(Cyst)])
+GSC.Early.spermatogonia.scale<-as.matrix(testis.scaled[,rownames(GSC.Early.spermatogonia)])
+Late.spermatogonia.scale<-as.matrix(testis.scaled[,rownames(Late.spermatogonia )])
+Early.spermatocytes.scale<-as.matrix(testis.scaled[,rownames(Early.spermatocytes)])
+Late.spermatocytes.scale<-as.matrix(testis.scaled[,rownames(Late.spermatocytes)])
+Early.spermatids.scale<-as.matrix(testis.scaled[,rownames(Early.spermatids)])
+Late.spermatids.scale<-as.matrix(testis.scaled[,rownames(Late.spermatids)])
+
+#get mean expression of every gene across every celltype
+#Somatic.bias <-data.frame(Celltype="Somatic cells", Exp=rowMeans(Somatic.scale), Gene=rownames(Somatic.scale), row.names = NULL)
+Hub.bias <-data.frame(Celltype="Hub cells", Exp=rowMeans(Hub.scale), Gene=rownames(Hub.scale), row.names = NULL)
+Cyst.bias <-data.frame(Celltype="Cyst cells", Exp=rowMeans(Cyst.scale), Gene=rownames(Cyst.scale), row.names = NULL) 
+Epi.bias <-data.frame(Celltype="Epithelial cells", Exp=rowMeans(Epi.scale), Gene=rownames(Epi.scale), row.names = NULL) 
+GSC.Early.spermatogonia.bias <-data.frame(Celltype="GSC, Early spermatogonia", Exp=rowMeans(GSC.Early.spermatogonia.scale), Gene=rownames(GSC.Early.spermatogonia.scale), row.names = NULL)
+Late.spermatogonia.bias <-data.frame(Celltype="Late spermatogonia", Exp=rowMeans(Late.spermatogonia.scale), Gene=rownames(Late.spermatogonia.scale), row.names = NULL)
+Early.spermatocytes.bias <-data.frame(Celltype="Early spermatocytes", Exp=rowMeans(Early.spermatocytes.scale), Gene=rownames(Early.spermatocytes.scale), row.names = NULL)
+Late.spermatocytes.bias <-data.frame(Celltype="Late spermatocytes", Exp=rowMeans(Late.spermatocytes.scale), Gene=rownames(Late.spermatocytes.scale), row.names = NULL)
+Early.spermatids.bias <-data.frame(Celltype="Early spermatids", Exp=rowMeans(Early.spermatids.scale), Gene=rownames(Early.spermatids.scale), row.names = NULL)
+Late.spermatids.bias <-data.frame(Celltype="Late spermatids", Exp=rowMeans(Late.spermatids.scale), Gene=rownames(Late.spermatids.scale), row.names = NULL)
+
+#makae data frame with scaled epxression of every gene in every cell type
+plot.data<-rbind(Hub.bias,Cyst.bias,Epi.bias,GSC.Early.spermatogonia.bias,Late.spermatogonia.bias,Early.spermatocytes.bias,Late.spermatocytes.bias,Early.spermatids.bias,Late.spermatids.bias )
+data1 <-data.frame(subset(plot.data, Gene %in% X), "Chr X genes")
+data3<-data.frame(subset(plot.data, Gene %in% Y), "Chr Y genes")
+data2<-data.frame(subset(plot.data, Gene %in% autosomal), "Autosomal")
+
+library(ggpubr)
+names(data1)<-c ("Celltype","Exp", "Gene", "Class" )
+names(data2)<-c ("Celltype","Exp", "Gene", "Class" )
+names(data3)<-c ("Celltype","Exp", "Gene", "Class" )
+#data4 has, for every gene, its mean scaled expression across every cell type
+data4 <-rbind(data1, data2, data3)
+data4$Class<-factor(data4$Class, levels=c("Chr X genes", "Autosomal","Chr Y genes"))
+
+
+my_comparisons<-list(c("Chr X genes", "Autosomal"), c("Chr Y genes", "Autosomal"))
+#test if gene class affects scaled expression in every cell type, adjusts p value with holms correction
+stat.test1 <- data4 %>%
+  group_by(Celltype) %>%
+  wilcox_test(Exp ~ Class, comparisons = my_comparisons, alternative="greater")
+stat.test1 <- stat.test1 %>% add_y_position()
+stat.test2 <- data4 %>%
+  group_by(Celltype) %>%
+  wilcox_test(Exp ~ Class, comparisons = my_comparisons, alternative="less")
+stat.test2 <- stat.test2 %>% add_y_position()
+stat.test1$p.adj<-p.adjust(stat.test1$p)
+stat.test2$p.adj<-p.adjust(stat.test2$p)
+stat.test1$p.adj.signif<- symnum(stat.test1$p.adj, corr = FALSE,
+                                 cutpoints = c(0,.00005,  .0005,.005,.05,  1),
+                                 symbols = c("****","***","**","*"," "))
+stat.test2$p.adj.signif<- symnum(stat.test2$p.adj, corr = FALSE,
+                                 cutpoints = c(0,.00005,  .0005,.005,.05,  1),
+                                 symbols = c("****","***","**","*"," "))
+
+stat.test1<-subset(stat.test1, group2 != "Chr Y genes")
+stat.test2<-subset(stat.test2, group2 != "Chr Y genes")
+#This is to put it in the right place when we plot
+stat.test1$y.position<-1.5
+stat.test2$y.position<-1.5
+#put cute little arrows in to show the relationship between sex chromosome and autosome- up or down
+stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "^\\*", replacement=paste("\U2191", "*"))
+stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "^\\*", replacement=paste("\U2193", "*"))
+#Don't print NS on plot.  We already have asterixis
+stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "ns", replacement="")
+stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "ns", replacement="")
+#setting bracket size to 0 puts the p.adj asterixes in between each boxplot.  The rest of the stuff makes the boxpplot, makes it pretty, sets the scale
+#First, the X.  Notice that we calculated the statistics first before subsetting the data.
+data4<-rbind(data1, data2)
+p1<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_string(y="Exp", colour="Class", fill="Class"))+facet_wrap(~Celltype, nrow=1,labeller = label_wrap_gen(width=10))+theme_bw()+xlab(NULL) +
+  ylab('Scaled expression') +
+  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+
+  theme(panel.grid.major = element_blank(),strip.background = element_blank(), panel.grid.minor = element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())+
+   stat_pvalue_manual(stat.test1,remove.bracket = FALSE,bracket.size = 0, label = "p.adj.signif", tip.length = 0.01)+theme(text=element_text(size=10))+
+  stat_pvalue_manual(stat.test2,remove.bracket = FALSE,bracket.size = 0,label = "p.adj.signif", tip.length = 0.01)+ylim(-1,2)
+
+
+p1<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_string(y="Exp", colour="Class", fill="Class"))+facet_wrap(~Celltype, nrow=1,labeller = label_wrap_gen(width=10))+theme_bw()+xlab(NULL) +
+  ylab('Scaled expression') +
+  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+
+  theme(panel.grid.major = element_blank(),strip.background = element_blank(), panel.grid.minor = element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())+
+  stat_pvalue_manual(stat.test1)
+#ok same thing with the Y chromosome
+data4 <-rbind(data3,data1, data2)
+data4$Class<-factor(data4$Class, levels=c("Chr Y genes", "Autosomal","Chr X genes"))
+my_comparisons<-list(c("Chr Y genes", "Autosomal"), c( "Autosomal", "Chr X genes"))
+
+stat.test1 <- data4 %>%
+  group_by(Celltype) %>%
+  wilcox_test(Exp ~ Class ,ref.group = "Chr Y genes",comparisons = my_comparisons, alternative="greater")
+stat.test1 <- stat.test1 %>% add_y_position()
+stat.test1$y.position<-0.5
+stat.test2 <- data4 %>%
+  group_by(Celltype) %>%
+  wilcox_test(Exp ~ Class, ref.group="Chr Y genes",comparisons = my_comparisons, alternative="less")
+stat.test2 <- stat.test2 %>% add_y_position()
+stat.test2$y.position<-0.5
+stat.test1$p.adj<-p.adjust(stat.test1$p)
+stat.test2$p.adj<-p.adjust(stat.test2$p)
+stat.test1$p.adj.signif<- symnum(stat.test1$p.adj, corr = FALSE,
+                                 cutpoints = c(0,.00005,  .0005,.005,.05,  1),
+                                 symbols = c("****","***","**","*"," "))
+stat.test2$p.adj.signif<- symnum(stat.test2$p.adj, corr = FALSE,
+                                 cutpoints = c(0,.00005,  .0005,.005,.05,  1),
+                                 symbols = c("****","***","**","*"," "))
+stat.test1<-subset(stat.test1, group2 != "Chr X genes")
+stat.test2<-subset(stat.test2, group2 != "Chr X genes")
+
+
+stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "^\\*", replacement=paste("\U2191", "*"))
+stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "^\\*", replacement=paste("\U2193", "*"))
+stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "ns", replacement="")
+stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "ns", replacement="")
+
+data4<-rbind(data3, data2)
+p2<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_string(y="Exp", colour="Class", fill="Class"))+facet_wrap(~Celltype, nrow=1,labeller = label_wrap_gen(width=10))+theme_bw()+xlab(NULL) +
+  ylab('Scaled expression') +
+  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+
+  theme(panel.grid.major = element_blank(),strip.background = element_blank(), panel.grid.minor = element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())+
+  stat_pvalue_manual(stat.test1,remove.bracket = FALSE,bracket.size = 0,label = "p.adj.signif", tip.length = 0.01)+theme(text=element_text(size=10))+
+  stat_pvalue_manual(stat.test2, remove.bracket = FALSE, bracket.size=0,label = "p.adj.signif", tip.length = 0.01)+ylim(-0.6,1)+scale_color_manual(aesthetics = c("color", "fill"), values=c("#C4961A","#00AFBB"))
+
+p3<-plot_grid(p1, p2, nrow=2, labels=c("A", "B"),label_size = 10)
+p3<-p3+theme(text=element_text(size=10), axis.text=element_text(size=10))
+
+
+#encoding problem: arrows look like boxes. If you want to save this one as a pdf, use quartz
+levels(testis.integrated)<-rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
+p2<-DotPlot(testis.integrated, assay = "RNA", features = rev(c("msl-1", "msl-2", "msl-3", "mle", "mof", "Clamp", "roX1", "roX2")), cols=c("lightblue2",  "red2"), col.min = 0)
+p2<-p2+theme(text=element_text(size=10), axis.text.x=element_text(size=10, face = "italic"), axis.text.y=element_text(size=10, face="plain"))+xlab("Genes")+ylab("Cell type")
+
+plot_grid(p3, p2, ncol=1, labels=c("A", "C"), label_size = 10, rel_widths=c(2,1))
+
+
+#to save this locally, run this:
+#quartz(type="pdf", file= "filename.pdf", width=10, height=6.5)
+#plot_grid(p3, p2, ncol=1, labels=c("A", "C"), label_size = 10, rel_widths=c(2,1))
+#dev.off
+```
+
+
+Oh boy that was fun, let's do figure 3!
+
+This chunk takes hours. Don't run this. To save you some time I put the output of this chunk into a files with the counts for every X and autosomal gene in every cell. Skip to the next part!
+
+```{r eval=F, echo=T}
+data1<-data.frame()
+for (i in list( "Hub.raw", "Cyst.raw", "Epithelial.raw", "GSC.Early.spermatogonia.raw", "Late.spermatogonia.raw", "Early.spermatocytes.raw", "Late.spermatocytes.raw", "Early.spermatids.raw", "Late.spermatids.raw")){ 
+  tmp1<-data.frame(get(i))
+  
+  for (j in X){
+    tmp2<-data.frame(sum(t(tmp1[j,])), j,i, "X")
+    names(tmp2)<-c ("Counts", "Genename", "Celltype", "Chr" )
+    data1<-rbind(data1, tmp2)
+    
+  }
+  for (j in autosomal){
+    tmp2<-data.frame(sum(t(tmp1[j,])), j,i, "Autosomal")
+    names(tmp2)<-c ("Counts", "Genename", "Celltype", "Chr" )
+    data1<-rbind(data1, tmp2)
+    
+  }
+}
+
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Hub.raw", replacement="Hub cells")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Cyst.raw", replacement="Cyst cells")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Epithelial.raw", replacement="Epithelial cells")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="GSC.Early.spermatogonia.raw", replacement="GSC, Early spermatogonia")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Late.spermatogonia.raw", replacement="Late spermatogonia")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Early.spermatocytes.raw", replacement="Early spermatocytes")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Late.spermatocytes.raw", replacement="Late spermatocytes")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Early.spermatids.raw", replacement="Early spermatids")
+data1$Celltype<-gsub(x=data1$Celltype, pattern="Late.spermatids.raw", replacement="Late spermatids")
+data1$Celltype<-factor(data1$Celltype, levels=rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids")))
+write.table(data1, "~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+
+
+
+```
+
+
+You skipped to this part right? Good. Run this chunk, which makes figure 3.
+
+```{r, fig.width=8}
+data1<-read.table("~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+data1$Celltype<-factor(data1$Celltype, levels=rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids")))
+
+#get raw and adjusted p values
+data2<-data1
+data2$Counts<-log2(data2$Counts+1)
+stat.test1 <- data2 %>%
+  group_by(Celltype) %>%
+  wilcox_test(Counts ~ Chr ,ref.group = "Autosomal", alternative="greater")%>%
+  adjust_pvalue(method = "holm") %>%
+  add_significance("p.adj") %>%
+  add_y_position()
+
+
+p1<-ggplot(data1, aes(x=Celltype, y=log2(Counts+1)))+geom_boxplot(aes(fill=Chr, color=Chr), outlier.shape=NA) +  stat_summary(geom = "crossbar",aes(fill=Chr, color=Chr), width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+guides(color=FALSE)+theme_classic()+
+  theme(text=element_text(size=10), axis.text=element_text(size=10))+xlab("Cell type")+labs(fill="Chromosome")+ylab("Log2-normalized counts per gene")+stat_pvalue_manual(stat.test1, x="Celltype", label="p.adj.signif")+coord_flip()
+p1
+
+```
+
+
+It's the home stretch! Let's make figure 4 to correlate chromatin entry site distance to expressed counts per gene!
+```{r, message=F, warning=F, plot.height=12, plot.width=10, fig.width=10, fig.height=12}
+
+#read in chromatin entry site coordinates
+CES<-read.csv("~/Downloads/WittZhao2020data/190927_ChromatinEntrySites_R5.csv", header=TRUE)
+CES$R6.start<-as.integer(str_remove_all(CES$R6.start, ","))
+CES$R6.end<-as.integer(str_remove_all(CES$R6.start, ","))
+
+#Get start, end, ID, symbol of every dmel gene
+
+flyCDS<-read.table("~/Downloads/WittZhao2020data/dmel-all-r6.15.genes.fb.coords.txt")[,c(1,3,5,6)]
+names(flyCDS)<-c("GENEID", "SYMBOL", "start", "end")
+
+#For each gene, get distance from start to closest CES
+CESdist<-data.frame()
+for (i in flyCDS$SYMBOL[flyCDS$SYMBOL %in% X]){
+
+    dist<-min(abs(subset(flyCDS, SYMBOL==i)$start - CES$R6.start))
+    tmp2<-data.frame(Gene=i, distance=dist)
+    CESdist<-rbind(CESdist, tmp2)
+ 
+}
+
+#now, for every gene, make a table with counts and distance to closest CES
+data2<-read.table("~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+data2<-subset(data2, Chr=="X")
+data2$Celltype<-factor(data2$Celltype, levels=c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
+CESdist2<-CESdist
+CESdist2$Genename<-CESdist2$Gene
+data2<-join(data2,CESdist2)
+
+
+#get raw and adjusted p values for every cell type correlation.
+flycor<-data.frame()
+for (i in unique(data2$Celltype)){
+  res<-cor.test(x = subset(data2, Celltype== i)$distance, y=log2(subset(data2, Celltype== i)$Counts+1), method = "pearson")
+  flycor<-rbind(flycor, data.frame(Celltype=i, pvalue=res$p.value, R=res$estimate))
+}
+
+flycor$P.adjust<-p.adjust(flycor$pvalue)
+flycor$label<-paste("R =",round(flycor$R,digits=3),"\n", "p.adj =", formatC(flycor$P.adjust, format = "e", digits=2), sep= " ")
+
+
+#this is to label the cell types we care about
+Celltypesignif<-c("Hub cells", "", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "","","","")
+
+#Figure 4A
+p1<-ggplot(data2, aes(x=distance, y=log2(Counts+1)))+geom_point(size=0.2, alpha=0.2)+scale_color_viridis(option="plasma")+geom_smooth(color="steelblue")+
+  facet_wrap(~`Celltype`, scales="free")+geom_label(data=flycor, aes(x=Inf, y=Inf, label=label), vjust=1, hjust=1)+
+  theme(strip.background = element_blank(),panel.border = element_rect(colour = "black"),strip.text.x=element_text(margin=margin(b=5)))+xlab("Distance (bp) from msl chromatin entry site (CES)")+xlim(0,500000)
+#Figure 4B
+p2<-ggplot(flycor, aes(x=P.adjust, y=R))+geom_point(aes(color=Celltype))+geom_vline(xintercept=.05, color="red")+ylab("Pearson's R")+xlab("Holm-adjusted p value for Pearson correlation")+ggtitle("Correlation between closest CES (in bp) and RNA per gene")+
+  scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+geom_text(label=Celltypesignif,nudge_x=0.01, hjust=0.25, vjust=-.4)
+
+plot_grid(p1, p2, ncol = 1, rel_heights=c(2,1), labels = c("A", "B"), label_size=10)   
+
+
+```
+
+Yay you did it! Feel free to tinker with this code however you want- if you want to assign cell types differently, or do an entirely different analysis, go ahead!  There's lots of stories buried in there, just remember to cite Witt and Zhao 2020 when you publish! Thanks for reading!
+
