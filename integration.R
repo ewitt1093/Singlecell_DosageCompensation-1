@@ -1,3 +1,7 @@
+#There's no need to run this part yourself, since the raw data from both strains is preserved in the integrated object. 
+#This is just to document the steps taken to integrate our two datasets.
+
+
 setwd("~/Box Sync/Evan/Zhao lab notebook/Misc data/181105_Dmel_sample2/")
 library(Seurat)
 library(viridis)
