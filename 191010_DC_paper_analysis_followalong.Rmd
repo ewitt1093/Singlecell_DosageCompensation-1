@@ -30,7 +30,7 @@ library(tidyverse)
 library(rstatix)
 library(cowplot)
 
-#This is for times we want to represent p values as asterixis
+#This is for times we want to represent p values as asterisks
 symnum.args <- list(
   cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1), 
   symbols = c("****", "***", "**", "*", "")
@@ -256,7 +256,7 @@ stat.test2$y.position<-1.5
 #put cute little arrows in to show the relationship between sex chromosome and autosome- up or down
 stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "^\\*", replacement=paste("\U2191", "*"))
 stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "^\\*", replacement=paste("\U2193", "*"))
-#Don't print NS on plot.  We already have asterixis
+#Don't print NS on plot.  We already have asterisks
 stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "ns", replacement="")
 stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "ns", replacement="")
 #setting bracket size to 0 puts the p.adj asterixes in between each boxplot.  The rest of the stuff makes the boxpplot, makes it pretty, sets the scale
@@ -270,11 +270,7 @@ p1<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_strin
   stat_pvalue_manual(stat.test2,remove.bracket = FALSE,bracket.size = 0,label = "p.adj.signif", tip.length = 0.01)+ylim(-1,2)
 
 
-p1<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_string(y="Exp", colour="Class", fill="Class"))+facet_wrap(~Celltype, nrow=1,labeller = label_wrap_gen(width=10))+theme_bw()+xlab(NULL) +
-  ylab('Scaled expression') +
-  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+
-  theme(panel.grid.major = element_blank(),strip.background = element_blank(), panel.grid.minor = element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())+
-  stat_pvalue_manual(stat.test1)
+
 #ok same thing with the Y chromosome
 data4 <-rbind(data3,data1, data2)
 data4$Class<-factor(data4$Class, levels=c("Chr Y genes", "Autosomal","Chr X genes"))
@@ -447,7 +443,7 @@ Celltypesignif<-c("Hub cells", "", "Epithelial cells", "GSC, Early spermatogonia
 #Figure 4A
 p1<-ggplot(data2, aes(x=distance, y=log2(Counts+1)))+geom_point(size=0.2, alpha=0.2)+scale_color_viridis(option="plasma")+geom_smooth(color="steelblue")+
   facet_wrap(~`Celltype`, scales="free")+geom_label(data=flycor, aes(x=Inf, y=Inf, label=label), vjust=1, hjust=1)+
-  theme(strip.background = element_blank(),panel.border = element_rect(colour = "black"),strip.text.x=element_text(margin=margin(b=5)))+xlab("Distance (bp) from msl chromatin entry site (CES)")+xlim(0,500000)
+  theme_classic()+xlab("Distance (bp) from msl chromatin entry site (CES)")+xlim(0,500000)
 #Figure 4B
 p2<-ggplot(flycor, aes(x=P.adjust, y=R))+geom_point(aes(color=Celltype))+geom_vline(xintercept=.05, color="red")+ylab("Pearson's R")+xlab("Holm-adjusted p value for Pearson correlation")+ggtitle("Correlation between closest CES (in bp) and RNA per gene")+
   scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+geom_text(label=Celltypesignif,nudge_x=0.01, hjust=0.25, vjust=-.4)
