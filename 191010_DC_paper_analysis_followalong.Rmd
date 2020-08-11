@@ -1,7 +1,7 @@
 ---
-title: "191010_DCC_paper_analysis_followalong"
+title: "200628_DCC_paper_analysis_followalong"
 author: "Evan Witt"
-date: "10/10/2019"
+date: "6/28/2020"
 output: html_document
 ---
 
@@ -29,6 +29,7 @@ library(ggsignif)
 library(tidyverse)
 library(rstatix)
 library(cowplot)
+library(magick)
 
 #This is for times we want to represent p values as asterisks
 symnum.args <- list(
@@ -36,8 +37,15 @@ symnum.args <- list(
   symbols = c("****", "***", "**", "*", "")
 )
 
-#read in the tesis RDS, and gene lists
+#read in the tesis RDS, and gene lists- change to wherever you downloaded the data files
 testis.integrated<-readRDS("~/Downloads/WittZhao2020data/190730_R517_wild_integrated_SCtransform.RDS")
+#testis.integrated<-readRDS("~/Box Sync/Evan/Zhao lab notebook/Misc data/200224_testis_integrated_revision.RDS")
+keep= rownames(testis.integrated)[grep("merged",rownames(testis.integrated), invert = T)]
+
+testis.integrated <- subset(x = testis.integrated,features =c(1:(dim(testis.integrated)[1]))[keep])
+
+
+
 testis.integrated@active.ident<-factor(testis.integrated@active.ident, levels=c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
 
 testisspecificgenes<-read.csv( "~/Downloads/WittZhao2020data/190516_testisspecificgenes_flyatlas.csv")
@@ -62,7 +70,7 @@ testisspecificgenes<-testisspecificgenes[testisspecificgenes %in% rownames(GetAs
 
 Make a dotplot of all the marker genes in every cell type, then get the barcodes of each cell of every type.  Then get the raw counts from every gene, divided by cell type.
 ```{r, fig.width=14}
-DotPlot(testis.integrated, assay = "RNA", features = rev(c("MtnA","zfh1","Fas3", "aub", "bam", "His2Av", "fzo", "twe", "Dpy-30L2", "p-cup")), cols=c("lightblue", "red"), col.min = 0)
+DotPlot(testis.integrated, assay = "RNA", features = rev(c("MtnA","Rab11", "dlg1","Fas3", "aub", "bam", "His2Av", "fzo", "twe", "Dpy-30L2", "p-cup")), cols=c("lightblue", "red"), col.min = 0)
 
 #barcodes
 Hub <-as.matrix(subset(Idents(testis.integrated), Idents(testis.integrated)=="Hub cells"))
@@ -91,29 +99,6 @@ Late.spermatids.raw<-as.matrix(GetAssayData(object=testis.integrated, slot="coun
 
 Ok let's make figure 1.
 ```{r, fig.width=10}
-#get proportions of expressed genes in every cell type
-celltypeprops<-data.frame()
-for (i in list("Hub.raw","Cyst.raw", "Epithelial.raw", "GSC.Early.spermatogonia.raw", "Late.spermatogonia.raw", "Early.spermatocytes.raw", "Late.spermatocytes.raw", "Early.spermatids.raw", "Late.spermatids.raw")){
-  tmp<-data.frame(colSums(get(i)[X,] > 0)/nrow(get(i)[X,] ), i, "Chr X genes")
-  names(tmp)<-c("Proportion", "Celltype", "Genegroup")
-  tmp$barcode<-rownames(tmp)
-  celltypeprops<-rbind(celltypeprops, tmp)
-  tmp<-data.frame(colSums(get(i)[autosomal,] > 0)/nrow(get(i)[autosomal,] ), i, "Autosomal genes")
-  names(tmp)<-c("Proportion", "Celltype", "Genegroup")
-  tmp$barcode<-rownames(tmp)
-  celltypeprops<-rbind(celltypeprops, tmp)
-  tmp<-data.frame(colSums(get(i)[Y,] > 0)/nrow(get(i)[Y,] ), i, "Chr Y genes")
-  names(tmp)<-c("Proportion", "Celltype", "Genegroup")
-  tmp$barcode<-rownames(tmp)
-  celltypeprops<-rbind(celltypeprops, tmp)
-
-}
-
-#replace names
-celltypeprops$`Celltype`<-gsub(celltypeprops$`Celltype`, pattern=".raw", replacement="")
-celltypeprops$`Celltype`<-gsub(celltypeprops$`Celltype`, pattern=".", replacement=" ", fixed=TRUE)
-celltypeprops$`Celltype`<-gsub(celltypeprops$`Celltype`, pattern="GSC", replacement="GSC,", fixed=TRUE)
-celltypeprops$`Celltype`<-factor(x=celltypeprops$`Celltype`, levels<-c("Hub","Cyst", "Epithelial", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
 
 #make a color palette for our 9 cell types
 pal<-as.vector(iwanthue(n = 9))
@@ -138,48 +123,26 @@ for (i in unique(data1$Celltype)){
 
 
 #Figure 1B  
-p1<-ggplot(data1, aes(x=data1$Celltype, y=Xcounts))+geom_boxplot(outlier.shape = NA, aes(x = Celltype, group=Celltype, fill=Celltype, color=Celltype))+theme(legend.position="none")+scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+
-stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+ scale_y_continuous(trans = 'log10',  breaks = scales::trans_breaks("log10", function(x) 10^x),labels =scales::trans_format("log10", scales::math_format(10^.x)))+xlab("Cell type")+ ylab("ChrX RNA per cell")+coord_flip()+
+p1<-ggplot(data1, aes(x=data1$Celltype, y=Xcounts))+geom_boxplot(outlier.shape = NA, aes(x = Celltype, group=Celltype, fill=Celltype, color=Celltype))+theme_classic()+theme(legend.position="none")+scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+
+stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+ scale_y_log10(limits=c(100, 100000))+xlab("Cell type")+ ylab("ChrX UMIs (RNA content) per cell")+coord_flip()+
   theme(axis.text.x=element_text(angle=90, size=10), axis.title=element_text(size=10) ,axis.text.y=element_text(size=10))
   
-p2<-ggplot(data1, aes(x=data1$Celltype, y=Autocounts))+geom_boxplot(outlier.shape = NA, aes(x = Celltype, group=Celltype, fill=Celltype, color=Celltype))+theme(legend.position="none")+scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+
-  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+ scale_y_continuous(trans = 'log10',  breaks = scales::trans_breaks("log10", function(x) 10^x),labels = scales::trans_format("log10", scales::math_format(10^.x)))+xlab("Cell type")+ ylab("Autosomal RNA per cell")+coord_flip()+
-  theme(axis.text.x=element_text(angle=90, size=10), axis.title.x=element_text(size=10) ,axis.text.y=element_blank(), axis.title.y=element_blank())
-
-p1<-plot_grid(p1, p2, ncol=2, rel_widths=c(2,1))
+p2<-ggplot(data1, aes(x=data1$Celltype, y=Autocounts))+geom_boxplot(outlier.shape = NA, aes(x = Celltype, group=Celltype, fill=Celltype, color=Celltype))+theme_classic()+theme(legend.position="none")+scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+
+stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+  scale_y_log10(limits=c(100, 100000))+xlab("Cell type")+ ylab("Autosomal UMIs (RNA content) per cell")+coord_flip()+
+  theme(axis.text.x=element_text(angle=90, size=10), axis.title=element_text(size=10) ,axis.text.y=element_text(size=10))
+  
+p1<-plot_grid(p1, p2, ncol=1, rel_widths=c(1,1))
 #Figure 1A- make t-sNE showing dimensional reduction of cell types
 p2 <- DimPlot(testis.integrated, reduction = "tsne", label = FALSE , cols = pal)
 p2<-p2+theme(text=element_text(size=10), axis.text=element_text(size=10), axis.title=element_text(size=10), legend.text=element_text(size=10))
 p1<-p1+theme(text=element_text(size=10), axis.text=element_text(size=10), axis.title=element_text(size=10), legend.text=element_text(size=10))
 
-p1 <-plot_grid(p2, p1, rel_widths = c(1,1.2), rel_heights = c(0.9,1),labels = c("A", "B"), label_size = 10)
+p1 <-plot_grid(p2, p1, rel_widths = c(1.2,1) ,labels = c("A", "B"), label_size = 10)
 
-celltypeprops$Genegroup<-factor(celltypeprops$Genegroup, levels=c("Chr X genes", "Autosomal genes","Chr Y genes"))
-
-my_comparisons<-list(c("Chr X genes", "Autosomal genes"))
-
-#figure 1 C
-p2<-ggplot(celltypeprops, aes(x=Genegroup, y=Proportion))+  geom_boxplot(outlier.shape=NA, aes_string(colour=celltypeprops$`Genegroup`, fill=celltypeprops$`Genegroup`))+
-  stat_summary(geom = "crossbar", width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+
-  xlab("Cell type")+ylab('Proportion of genes expressed')+  guides(fill=guide_legend(title="Gene class"))+
-  theme( legend.position="top", axis.ticks.x=element_blank(), axis.text.x=element_blank(), text=element_text(size=10))+
-  facet_wrap(~`Celltype`, scales="free_x", nrow=1, strip.position = "bottom",labeller = label_wrap_gen(width=15))+
-  theme(strip.text=element_text(margin=margin(2,0,2,0, "pt"), size=10), strip.background=element_rect(fill="white"), strip.placement="outside", text=element_text(size=10), axis.text=element_text(size=10), axis.title=element_text(size=10), legend.text=element_text(size=10))+guides(colour=FALSE)
-
-#get raw and adjusted p values for figure 1C
-stat.test <- celltypeprops %>%
-  group_by(Celltype) %>%
-  wilcox_test(Proportion ~ Genegroup, comparisons = my_comparisons, alternative="less") %>%
-  adjust_pvalue(method = "holm") %>%
-  add_significance("p.adj") %>%
-  add_y_position()
-
-
-p2<-p2+ stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01 )
  
-plot_grid(p1, p2, ncol=1, labels = c("A", "C"), label_size = 10, rel_heights = c(0.8,1.5))
-
-
+#plot_grid(p1, p2, ncol=1, labels = c("A", "C"), label_size = 10, rel_heights = c(0.8,1.5))
+p1
+ggsave( "~/Box Sync/Evan/Zhao lab notebook/Writing/DC paper revisions/200325_figure1.pdf", width=12, height=5)
 
 ```
 Time for figure 2:
@@ -250,6 +213,7 @@ stat.test2$p.adj.signif<- symnum(stat.test2$p.adj, corr = FALSE,
 
 stat.test1<-subset(stat.test1, group2 != "Chr Y genes")
 stat.test2<-subset(stat.test2, group2 != "Chr Y genes")
+stat.test3<-rbind(stat.test1, stat.test2) #this is for supplemental table 2
 #This is to put it in the right place when we plot
 stat.test1$y.position<-1.5
 stat.test2$y.position<-1.5
@@ -268,6 +232,9 @@ p1<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_strin
   theme(panel.grid.major = element_blank(),strip.background = element_blank(), panel.grid.minor = element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())+
    stat_pvalue_manual(stat.test1,remove.bracket = FALSE,bracket.size = 0, label = "p.adj.signif", tip.length = 0.01)+theme(text=element_text(size=10))+
   stat_pvalue_manual(stat.test2,remove.bracket = FALSE,bracket.size = 0,label = "p.adj.signif", tip.length = 0.01)+ylim(-1,2)
+
+
+
 
 
 
@@ -302,7 +269,7 @@ stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "^\\*", replace
 stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "^\\*", replacement=paste("\U2193", "*"))
 stat.test1$p.adj.signif<-gsub(stat.test1$p.adj.signif, pattern = "ns", replacement="")
 stat.test2$p.adj.signif<-gsub(stat.test2$p.adj.signif, pattern = "ns", replacement="")
-
+stat.test4<-rbind(stat.test1, stat.test2) #this is for supplemental table 3
 data4<-rbind(data3, data2)
 p2<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_string(y="Exp", colour="Class", fill="Class"))+facet_wrap(~Celltype, nrow=1,labeller = label_wrap_gen(width=10))+theme_bw()+xlab(NULL) +
   ylab('Scaled expression') +
@@ -312,21 +279,18 @@ p2<-ggplot(data4, aes(x=Class, y=Exp)) +geom_boxplot(outlier.shape=NA, aes_strin
   stat_pvalue_manual(stat.test2, remove.bracket = FALSE, bracket.size=0,label = "p.adj.signif", tip.length = 0.01)+ylim(-0.6,1)+scale_color_manual(aesthetics = c("color", "fill"), values=c("#C4961A","#00AFBB"))
 
 p3<-plot_grid(p1, p2, nrow=2, labels=c("A", "B"),label_size = 10)
-p3<-p3+theme(text=element_text(size=10), axis.text=element_text(size=10))
 
+p3
 
 #encoding problem: arrows look like boxes. If you want to save this one as a pdf, use quartz
-levels(testis.integrated)<-rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
-p2<-DotPlot(testis.integrated, assay = "RNA", features = rev(c("msl-1", "msl-2", "msl-3", "mle", "mof", "Clamp", "roX1", "roX2")), cols=c("lightblue2",  "red2"), col.min = 0)
-p2<-p2+theme(text=element_text(size=10), axis.text.x=element_text(size=10, face = "italic"), axis.text.y=element_text(size=10, face="plain"))+xlab("Genes")+ylab("Cell type")
 
-plot_grid(p3, p2, ncol=1, labels=c("A", "C"), label_size = 10, rel_widths=c(2,1))
+
 
 
 #to save this locally, run this:
-#quartz(type="pdf", file= "filename.pdf", width=10, height=6.5)
+#quartz(type="pdf",file= "~/Box Sync/Evan/Zhao lab notebook/Writing/DC paper revisions/200225_figure2.pdf", width=10, height=6.5)
 #plot_grid(p3, p2, ncol=1, labels=c("A", "C"), label_size = 10, rel_widths=c(2,1))
-#dev.off
+#dev.off()
 ```
 
 
@@ -363,8 +327,8 @@ data1$Celltype<-gsub(x=data1$Celltype, pattern="Late.spermatocytes.raw", replace
 data1$Celltype<-gsub(x=data1$Celltype, pattern="Early.spermatids.raw", replacement="Early spermatids")
 data1$Celltype<-gsub(x=data1$Celltype, pattern="Late.spermatids.raw", replacement="Late spermatids")
 data1$Celltype<-factor(data1$Celltype, levels=rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids")))
-write.table(data1, "~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
-
+#write.table(data1, "~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+write.table(data1, "~/Box Sync/Evan/Zhao lab notebook/Misc data/200224_X_autosome_counts.txt")
 
 
 ```
@@ -373,7 +337,9 @@ write.table(data1, "~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
 You skipped to this part right? Good. Run this chunk, which makes figure 3.
 
 ```{r, fig.width=8}
-data1<-read.table("~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+#data1<-read.table("~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+data1<-read.table("~/Box Sync/Evan/Zhao lab notebook/Misc data/200224_X_autosome_counts.txt")
+
 data1$Celltype<-factor(data1$Celltype, levels=rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids")))
 
 #get raw and adjusted p values
@@ -381,16 +347,19 @@ data2<-data1
 data2$Counts<-log2(data2$Counts+1)
 stat.test1 <- data2 %>%
   group_by(Celltype) %>%
-  wilcox_test(Counts ~ Chr ,ref.group = "Autosomal", alternative="greater")%>%
+  wilcox_test(Counts ~ Chr ,ref.group = "Autosomal")%>%
   adjust_pvalue(method = "holm") %>%
   add_significance("p.adj") %>%
   add_y_position()
 
+#data3<-data2 %>% group_by(Chr, Celltype) %>% summarise(median=median(Counts))
 
 p1<-ggplot(data1, aes(x=Celltype, y=log2(Counts+1)))+geom_boxplot(aes(fill=Chr, color=Chr), outlier.shape=NA) +  stat_summary(geom = "crossbar",aes(fill=Chr, color=Chr), width=0.6, position= position_dodge(width = 0.75), fatten=0, color="black", fun.data = function(x){ return(c(y=median(x), ymin=median(x), ymax=median(x))) })+guides(color=FALSE)+theme_classic()+
   theme(text=element_text(size=10), axis.text=element_text(size=10))+xlab("Cell type")+labs(fill="Chromosome")+ylab("Log2-normalized counts per gene")+stat_pvalue_manual(stat.test1, x="Celltype", label="p.adj.signif")+coord_flip()
 p1
 
+
+#
 ```
 
 
@@ -418,7 +387,8 @@ for (i in flyCDS$SYMBOL[flyCDS$SYMBOL %in% X]){
 }
 
 #now, for every gene, make a table with counts and distance to closest CES
-data2<-read.table("~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+#data2<-read.table("~/Downloads/WittZhao2020data/190924_X_autosome_counts.txt")
+data2<-read.table("~/Box Sync/Evan/Zhao lab notebook/Misc data/200630_X_autosome_counts.txt")
 data2<-subset(data2, Chr=="X")
 data2$Celltype<-factor(data2$Celltype, levels=c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
 CESdist2<-CESdist
@@ -436,22 +406,151 @@ for (i in unique(data2$Celltype)){
 flycor$P.adjust<-p.adjust(flycor$pvalue)
 flycor$label<-paste("R =",round(flycor$R,digits=3),"\n", "p.adj =", formatC(flycor$P.adjust, format = "e", digits=2), sep= " ")
 
+#flycor is for supplemental table 3
+
 
 #this is to label the cell types we care about
-Celltypesignif<-c("Hub cells", "", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "","","","")
+Celltypesignif<-c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "","","","")
 
 #Figure 4A
-p1<-ggplot(data2, aes(x=distance, y=log2(Counts+1)))+geom_point(size=0.2, alpha=0.2)+scale_color_viridis(option="plasma")+geom_smooth(color="steelblue")+
-  facet_wrap(~`Celltype`, scales="free")+geom_label(data=flycor, aes(x=Inf, y=Inf, label=label), vjust=1, hjust=1)+
+p1<-ggplot(data2, aes(x=distance, y=log2(Counts+1)))+geom_point(size=0.2, alpha=0.2)+geom_smooth(color="steelblue")+
+  facet_wrap(~`Celltype`, scales='free')+geom_label(data=flycor, aes(x=Inf, y=Inf, label=label), vjust=1, hjust=1)+
   theme_classic()+xlab("Distance (bp) from msl chromatin entry site (CES)")+xlim(0,500000)
 #Figure 4B
-p2<-ggplot(flycor, aes(x=P.adjust, y=R))+geom_point(aes(color=Celltype))+geom_vline(xintercept=.05, color="red")+ylab("Pearson's R")+xlab("Holm-adjusted p value for Pearson correlation")+ggtitle("Correlation between closest CES (in bp) and RNA per gene")+
-  scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+geom_text(label=Celltypesignif,nudge_x=0.01, hjust=0.25, vjust=-.4)
+p2<-ggplot(flycor, aes(x=P.adjust, y=R))+geom_point(aes(color=Celltype), position=position_dodge(width=0.005))+theme_classic()+geom_vline(xintercept=.05, color="red")+ylab("Pearson's R")+xlab("Holm-adjusted p value for Pearson correlation")+ggtitle("Correlation between closest CES (in bp) and RNA per gene")+
+  scale_color_manual(aesthetics = c("color","fill"),values = rev(pal))+geom_text(label=Celltypesignif,nudge_x=0.01, hjust=0.25, vjust=-.4)+theme(axis.text=element_text(size=10))
 
 plot_grid(p1, p2, ncol = 1, rel_heights=c(2,1), labels = c("A", "B"), label_size=10)   
 
+#Supplemental figure 13
+
+
+
+#ok make 2 sets: genes within 10000 bp and genes outside
+
+data3<-data2
+data3<-mutate(data3, proximity=ifelse(distance<10000, "<10k bp", ">10k bp"))
+
+get_wraper <- function(width) {
+    function(x) {
+        lapply(strwrap(x, width = width, simplify = FALSE), paste, collapse="\n")
+    }
+}
+
+ggplot(data3, aes(x=Celltype, y=log2(Counts+1),fill=proximity))+geom_boxplot(outlier.size=.2)+stat_compare_means(method="wilcox.test", aes(label=symnum(..p.adj.., cutpoints = c(0,.00005,  .0005,.005,.05,  1), symbols = c("****","***","**","*","ns") )))+theme_classic()+scale_fill_discrete(name="Distance to closest Chromatin \nEntry Site (CES)")+theme(axis.text.x=element_text(size=10))+ 
+    scale_x_discrete(labels = get_wraper(12))+theme(legend.position="top")
+
+#add asterisks
+
+
+
+
+
+
+
+#get table of x and autosome counts: X:autosome, and close:far
+data2<-read.table("~/Box Sync/Evan/Zhao lab notebook/Misc data/200630_X_autosome_counts.txt")
+
+
+data2$Celltype<-factor(data2$Celltype, levels=c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
+
+stat.test2 <- data3 %>%
+  group_by(Celltype) %>%
+  wilcox_test(Counts ~ proximity ,ref.group = "<10k bp") %>%
+  adjust_pvalue(method = "holm") %>%
+  add_significance("p.adj") %>%
+  add_y_position()
+
+#get table of median summed counts per cell, x and autosome- supplemental table 1
+supp1<-data2 %>% dplyr::group_by(Celltype, Chr) %>%
+  dplyr::summarize(sum=sum(Counts))%>%
+  pivot_wider(names_from=Chr, values_from=sum)
+
+supp1$nCell = c(329, 387, 249, 50, 1048, 1985, 2476, 5964, 512)
+supp1$Xpercell=supp1$X/supp1$nCell
+supp1$Autopercell=supp1$Autosomal/supp1$nCell
+supp1
+supp1$ratio<-supp1$Xpercell/supp1$Autopercell
+
 
 ```
+
+
+```{r}
+#ok let's add another figure with a dotplot of msl genes.  I'll add some FISH pictures using illustrator.
+levels(testis.integrated)<-rev(c("Hub cells", "Cyst cells", "Epithelial cells", "GSC, Early spermatogonia", "Late spermatogonia", "Early spermatocytes", "Late spermatocytes", "Early spermatids", "Late spermatids"))
+p2<-DotPlot(testis.integrated, assay = "RNA", features = rev(c("msl-1", "msl-2", "msl-3", "mle", "mof", "Clamp", "roX1", "roX2")), cols=c("lightblue2",  "red2"), col.min = 0)
+p2<-p2+theme(text=element_text(size=10), axis.text.x=element_text(size=10, face = "italic"), axis.text.y=element_text(size=10, face="plain"))+xlab("Genes")+ylab("Cell type")
+p2
+#ggsave("~/Box Sync/Evan/Zhao lab notebook/Writing/DC paper revisions/200629_Figure5.pdf", width=8, height=4)
+
+p1<-RidgePlot(testis.integrated, features = "msl-1", slot="counts")+theme(legend.position="none")
+p2<-RidgePlot(testis.integrated, features = "msl-2", slot="counts")+theme(legend.position="none", axis.text.y=element_blank())
+p3<-RidgePlot(testis.integrated, features = "msl-3", slot="counts")+theme(legend.position="none", axis.text.y=element_blank())+xlim(0,15)
+p4<-RidgePlot(testis.integrated, features = "mle", slot="counts")+theme(legend.position="none", axis.text.y=element_blank())
+p5<-RidgePlot(testis.integrated, features = "mof", slot="counts")+theme(legend.position="none")
+p6<-RidgePlot(testis.integrated, features = "Clamp", slot="counts")+theme(legend.position="none", axis.text.y=element_blank())+xlim(0,15)
+p7<-RidgePlot(testis.integrated, features = "roX1", slot="counts")+theme(legend.position="none", axis.text.y=element_blank())
+p8<-RidgePlot(testis.integrated, features = "roX2", slot="counts")+theme(legend.position="none", axis.text.y=element_blank())
+
+
+
+p1<-VlnPlot(testis.integrated, features = "msl-1", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p2<-VlnPlot(testis.integrated, features = "msl-2", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p3<-VlnPlot(testis.integrated, features = "msl-3", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p4<-VlnPlot(testis.integrated, features = "mle", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p5<-VlnPlot(testis.integrated, features = "mof", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p6<-VlnPlot(testis.integrated, features = "Clamp", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p7<-VlnPlot(testis.integrated, features = "roX1", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+p8<-VlnPlot(testis.integrated, features = "roX2", slot="counts")+theme(legend.position="none")+ylab("Counts")+xlab("Cell type")
+
+VlnPlot(testis.integrated, features = c("msl-1","msl-2","msl-3","mle","mof","Clamp", "roX1", "roX2"), slot="counts")
+
+VlnPlot(testis.integrated, features = c("msl-1","msl-2","msl-3","mle","mof","Clamp", "roX1", "roX2"), slot="counts")
+p9<-ggdraw()+draw_image("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/msl1.png")+p1
+p10<-ggdraw()+draw_image("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/msl2.png")+p2
+p11<- ggdraw()+draw_image("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/msl3.png")+p3
+p12<-ggdraw()+draw_image("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/mle.png")+p4
+p13<-ggdraw()+draw_image("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/roX1.png")+p7
+p14<-ggdraw()+draw_image("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/roX2.png")+p8
+
+#pdf("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/msl1.pdf", width=8, height=6)
+p9
+#dev.off()
+#pdf("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/msl2.pdf", width=8, height=6)
+p10
+#dev.off()
+#pdf("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/msl3.pdf", width=8, height=6)
+p11
+#dev.off()
+#pdf("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/mle.pdf", width=8, height=6)
+p12
+#dev.off()
+#pdf("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/roX1.pdf", width=8, height=6)
+p13
+#dev.off()
+#pdf("~/Box Sync/Evan/Zhao lab notebook/Misc_data/DCC-images/roX2.pdf", width=8, height=6)
+p14
+#dev.off()
+
+
+#flyatlas expression#supplemental figure 14
+
+flyatlas<-read.csv("~/Box Sync/Evan/Zhao lab notebook/Misc data/DCC-gene-fpkm.csv")
+flyatlas<-flyatlas %>%pivot_longer(c(Testis.enrichment, Accessory.gland.enrichment, Male.brain.enrichment), names_to="Tissue", values_to="Enrichment")
+flyatlas$Tissue<-gsub(flyatlas$Tissue, pattern="Accessory.gland.enrichment", replacement="Accessory gland")
+flyatlas$Tissue<-gsub(flyatlas$Tissue, pattern="Testis.enrichment", replacement="Testis")
+flyatlas$Tissue<-gsub(flyatlas$Tissue, pattern="Male.brain.enrichment", replacement="Male brain")
+
+flyatlas$Tissue<-factor(flyatlas$Tissue, levels=c("Testis", "Accessory gland", "Male brain"))
+flyatlas$X<-factor(flyatlas$X, levels=c("roX1", "roX2", "msl-1", "msl-2", "msl-3", "mle", "mof", "Clamp"))
+ggplot(flyatlas, aes(x=X, y=Enrichment, fill=Tissue))+geom_bar(position="dodge", stat="identity")+theme_classic()+xlab("Gene")+ylab("Enrichment in Flyatlas2 data")+theme(axis.text.x = element_text(size=10, face="italic"),legend.text=element_text(size=10), axis.text.y=element_text(size=10))
+
+
+
+```
+
+
 
 Yay you did it! Feel free to tinker with this code however you want- if you want to assign cell types differently, or do an entirely different analysis, go ahead!  There's lots of stories buried in there, just remember to cite Witt and Zhao 2020 when you publish! Thanks for reading!
 
